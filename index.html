@@ -179,6 +179,8 @@
      filho de cada linha e deve ocupar a largura toda em vez de crescer no eixo errado. */
   .chip-list > .chip{flex:0 0 auto; width:100%; touch-action:none;}
   .chip-list > .chip.dragging{cursor:grabbing; box-shadow:0 10px 26px rgba(0,0,0,.5);}
+  .anot-list > .anot-node.dragging{cursor:grabbing; background:var(--surface-2); border-radius:8px; box-shadow:0 10px 26px rgba(0,0,0,.5);}
+  .anot-list > .anot-node.dragging .anot-row{cursor:grabbing;}
   .chip:hover{border-color:var(--pagec, var(--accent));}
   /* line-height explícito (em vez de "normal") — "normal" puxa a métrica vertical interna da
      própria fonte, que muda de um tipo pra outro; sem isso o nome do nodo ficava sutilmente
@@ -961,10 +963,24 @@
      lista, ou um toque rápido pra abrir o item) nada é bloqueado: o long-press só passa a
      "capturar" o ponteiro depois de confirmado parado, então rolar a lista com o dedo
      continua funcionando normalmente. Um toque/clique normal (sem segurar) chama onOpen. */
-  function attachChipDrag(chip, list, items, idx, onOpen, it){
+  /* Reordenar por "segurar e arrastar" — reusado tanto pelos chips de nodo (handle===dragEl) quanto
+     pelas seções de anotação (handle é só o cabeçalho .anot-row; dragEl é o bloco inteiro da seção,
+     que pode ter altura bem maior quando expandida). `list` é o container cujos filhos diretos (na
+     mesma ordem de `items`) são os `dragEl`s; `idx` é a posição do item atual nessa lista.
+     opts: onTap() — toque rápido (sem segurar); onReorder() — chamado só quando a ordem realmente
+     mudou (persistir dados); onSettle() — chamado ao fim de qualquer arraste, mudando a ordem ou
+     não (recompor a lista/estilos); ignoreSelector — não inicia arraste se o toque começou dentro
+     de um elemento que bate com esse seletor (ex.: os botões de editar/excluir dentro do cabeçalho). */
+  function attachDragReorder(handle, dragEl, list, items, idx, opts){
+    opts = opts || {};
+    var onTap = opts.onTap || function(){};
+    var onReorder = opts.onReorder || function(){};
+    var onSettle = opts.onSettle || function(){};
+    var ignoreSelector = opts.ignoreSelector || null;
     var HOLD_MS = 420, MOVE_CANCEL_PX = 8;
     var pointerId = null, startX = 0, startY = 0, startScrollTop = 0, holdTimer = null, dragging = false;
-    var dragActivated = false, suppressClick = false, chipHeight = 0, gap = 6, rects = [];
+    var dragActivated = false, suppressTap = false, dragHeight = 0, gap = 6, rects = [];
+    handle.style.touchAction = 'none';
     function clearHold(){ if (holdTimer){ clearTimeout(holdTimer); holdTimer = null; } }
     function resetSiblingTransforms(){
       Array.prototype.forEach.call(list.children, function(ch){ ch.style.transform = ''; ch.style.transition = ''; });
@@ -973,52 +989,52 @@
       clearHold();
       if (dragging){
         dragging = false;
-        chip.classList.remove('dragging');
-        chip.style.transition = ''; chip.style.transform = ''; chip.style.zIndex = ''; chip.style.boxShadow = '';
+        dragEl.classList.remove('dragging');
+        dragEl.style.transition = ''; dragEl.style.transform = ''; dragEl.style.zIndex = ''; dragEl.style.boxShadow = '';
         resetSiblingTransforms();
         if (commit != null && commit !== idx){
           var moved = items.splice(idx, 1)[0];
           items.splice(commit, 0, moved);
-          save();
+          onReorder();
         }
-        render();
+        onSettle();
       }
       pointerId = null;
-      setTimeout(function(){ dragActivated = false; suppressClick = false; }, 0);
+      setTimeout(function(){ dragActivated = false; suppressTap = false; }, 0);
     }
-    // .chip disables the browser's native touch scrolling/callout so a held touch can become a
-    // drag instead of triggering a native scroll or long-press menu; while NOT dragging we replay
-    // the finger's vertical movement onto the list's scrollTop ourselves, so a quick swipe still
-    // scrolls the list exactly like native touch scrolling would.
-    chip.addEventListener('pointerdown', function(e){
+    // touch-action:none no "handle" desliga a rolagem/menu de toque nativos do navegador ali, pra
+    // um toque segurado poder virar arraste; enquanto NÃO está arrastando, replicamos o movimento
+    // vertical do dedo no scrollTop da lista manualmente, então um gesto rápido ainda rola normal.
+    handle.addEventListener('pointerdown', function(e){
+      if (ignoreSelector && e.target && e.target.closest && e.target.closest(ignoreSelector)) return;
       if (e.button !== undefined && e.button > 0) return;
       if (pointerId !== null) return;
       pointerId = e.pointerId; startX = e.clientX; startY = e.clientY; startScrollTop = list.scrollTop;
-      suppressClick = false;
-      try { chip.setPointerCapture(pointerId); } catch(err){}
+      suppressTap = false;
+      try { handle.setPointerCapture(pointerId); } catch(err){}
       clearHold();
       holdTimer = setTimeout(function(){
         holdTimer = null; dragging = true; dragActivated = true;
         var cs = getComputedStyle(list);
         gap = parseFloat(cs.rowGap || cs.gap || '6') || 6;
         rects = Array.prototype.map.call(list.children, function(ch){ return ch.getBoundingClientRect(); });
-        chipHeight = rects[idx].height;
-        chip.classList.add('dragging');
-        chip.style.zIndex = '50'; chip.style.transition = 'none'; chip.style.boxShadow = '0 10px 26px rgba(0,0,0,.5)';
-        Array.prototype.forEach.call(list.children, function(ch){ if (ch !== chip) ch.style.transition = 'transform .15s ease'; });
+        dragHeight = rects[idx].height;
+        dragEl.classList.add('dragging');
+        dragEl.style.zIndex = '50'; dragEl.style.transition = 'none'; dragEl.style.boxShadow = '0 10px 26px rgba(0,0,0,.5)';
+        Array.prototype.forEach.call(list.children, function(ch){ if (ch !== dragEl) ch.style.transition = 'transform .15s ease'; });
       }, HOLD_MS);
     });
-    chip.addEventListener('pointermove', function(e){
+    handle.addEventListener('pointermove', function(e){
       if (e.pointerId !== pointerId) return;
       var dx = e.clientX - startX, dy = e.clientY - startY;
       if (!dragging){
-        if (Math.abs(dx) > MOVE_CANCEL_PX || Math.abs(dy) > MOVE_CANCEL_PX) { clearHold(); suppressClick = true; }
+        if (Math.abs(dx) > MOVE_CANCEL_PX || Math.abs(dy) > MOVE_CANCEL_PX) { clearHold(); suppressTap = true; }
         list.scrollTop = startScrollTop - dy;
         e.preventDefault();
         return;
       }
       e.preventDefault();
-      chip.style.transform = 'translateY(' + dy + 'px)';
+      dragEl.style.transform = 'translateY(' + dy + 'px)';
       var draggedCenter = rects[idx].top + rects[idx].height / 2 + dy;
       var target = 0;
       for (var i = 0; i < rects.length; i++){
@@ -1026,25 +1042,25 @@
         var otherCenter = rects[i].top + rects[i].height / 2;
         if (otherCenter < draggedCenter) target++;
       }
-      chip._dragTarget = target;
+      dragEl._dragTarget = target;
       Array.prototype.forEach.call(list.children, function(ch, i){
-        if (ch === chip) return;
+        if (ch === dragEl) return;
         var rankNoDragged = i < idx ? i : i - 1;
         var shouldBeBefore = rankNoDragged < target;
         var wasBefore = i < idx;
         if (shouldBeBefore === wasBefore) ch.style.transform = '';
-        else ch.style.transform = 'translateY(' + (wasBefore ? (chipHeight + gap) : -(chipHeight + gap)) + 'px)';
+        else ch.style.transform = 'translateY(' + (wasBefore ? (dragHeight + gap) : -(dragHeight + gap)) + 'px)';
       });
     });
     function onUp(e){
       if (e.pointerId !== pointerId) return;
-      if (!dragging){ clearHold(); pointerId = null; setTimeout(function(){ suppressClick = false; }, 0); return; }
+      if (!dragging){ clearHold(); pointerId = null; setTimeout(function(){ suppressTap = false; }, 0); return; }
       e.preventDefault();
-      endDrag(chip._dragTarget != null ? chip._dragTarget : idx);
+      endDrag(dragEl._dragTarget != null ? dragEl._dragTarget : idx);
     }
-    chip.addEventListener('pointerup', onUp);
-    chip.addEventListener('pointercancel', function(e){ if (e.pointerId !== pointerId) return; endDrag(null); });
-    chip.addEventListener('click', function(){ if (dragActivated || suppressClick) return; onOpen(it); });
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', function(e){ if (e.pointerId !== pointerId) return; endDrag(null); });
+    handle.addEventListener('click', function(){ if (dragActivated || suppressTap) return; onTap(); });
   }
   function panel(cssClass, titulo, items, onAdd, onOpen){
     var p = h('div', {class:'panel ' + cssClass});
@@ -1057,7 +1073,7 @@
       chip.appendChild(h('span', {class:'chip-nome'}, it.nome || '(sem nome)'));
       if (it.descricao) chip.appendChild(h('span', {class:'chip-desc'}, it.descricao));
       list.appendChild(chip);
-      attachChipDrag(chip, list, items, idx, onOpen, it);
+      attachDragReorder(chip, chip, list, items, idx, {onTap:function(){ onOpen(it); }, onReorder:save, onSettle:render});
     });
     p.appendChild(list);
     return p;
@@ -1079,6 +1095,9 @@
   }
   /* container[field] é a lista de seções; retorna {host, refresh} — refresh() se redesenha sozinho,
      sem depender do render() global, para poder ser embutido tanto no painel principal quanto num modal. */
+  /* Retorna {el, save} em vez de só o elemento: "save" grava os campos no node e dispara onDone,
+     sem fechar o popup — permite que quem abriu o popup também salve automaticamente ao clicar
+     fora (em vez de simplesmente descartar o que foi digitado). */
   function anotWritePopup(node, onDone, closeFn){
     var wrap = h('div', {class:'modal-content'});
     wrap.appendChild(h('h2', {}, 'Editar seção'));
@@ -1096,17 +1115,17 @@
     var ta = h('textarea', {class:'form-textarea anot-write-textarea', placeholder:'Escreva aqui...'});
     ta.value = pending.conteudo;
     rowContent.appendChild(ta); wrap.appendChild(rowContent);
-    var actions = h('div', {class:'modal-actions'});
-    actions.appendChild(h('button', {class:'btn', onclick:closeFn}, 'Cancelar'));
-    actions.appendChild(h('button', {class:'btn btn-primary', onclick:function(){
+    function doSave(){
       node.titulo = inpTitle.value.trim() || 'Sem título';
       node.conteudo = ta.value;
       node.imagem = pending.imagem;
-      closeFn();
       onDone();
-    }}, 'Salvar'));
+    }
+    var actions = h('div', {class:'modal-actions'});
+    actions.appendChild(h('button', {class:'btn', onclick:closeFn}, 'Cancelar'));
+    actions.appendChild(h('button', {class:'btn btn-primary', onclick:function(){ doSave(); closeFn(); }}, 'Salvar'));
     wrap.appendChild(actions);
-    return wrap;
+    return {el: wrap, save: doSave};
   }
   function anotComponent(container, field, opts){
     opts = opts || {};
@@ -1123,13 +1142,17 @@
         if (parentOverlay) root.appendChild(parentOverlay);
       }
       var content = anotWritePopup(node, function(){ persist(); refresh(); }, goBack);
-      var overlay = h('div', {class:'modal-overlay', onclick:function(e){ if (e.target === overlay) goBack(); }});
-      overlay.appendChild(h('div', {class:'modal-box'}, content));
+      // clicar fora salva automaticamente (em vez de descartar) — evita perder o que foi digitado
+      var overlay = h('div', {class:'modal-overlay', onclick:function(e){ if (e.target === overlay){ content.save(); goBack(); } }});
+      overlay.appendChild(h('div', {class:'modal-box'}, content.el));
       root.appendChild(overlay);
     }
-    function buildNode(node){
+    /* topList/topIdx só são passados para as seções de primeiro nível (as que estão diretamente em
+       container[field], mesma lista que host/refresh manipulam) — é nelas que o arraste-pra-reordenar
+       se aplica; sub-seções (filhos) continuam sem essa opção, igual antes. */
+    function buildNode(node, topList, topIdx){
       var wrap = h('div', {class:'anot-node'});
-      var row = h('div', {class:'anot-row', title: node.colapsada ? 'Toque para expandir' : 'Toque para recolher', onclick:function(){ node.colapsada = !node.colapsada; persist(); refresh(); }});
+      var row = h('div', {class:'anot-row', title: node.colapsada ? 'Toque para expandir' : (topList ? 'Toque para recolher · segure e arraste para reordenar' : 'Toque para recolher')});
       var caret = h('span', {class:'anot-caret'}, node.colapsada ? '▸' : '▾');
       var titleSpan = h('span', {class:'anot-title-btn'}, node.titulo || 'Sem título');
       row.appendChild(caret); row.appendChild(titleSpan);
@@ -1146,13 +1169,23 @@
         (node.filhos || []).forEach(function(c){ children.appendChild(buildNode(c)); });
         if ((node.filhos || []).length) wrap.appendChild(children);
       }
+      if (topList){
+        attachDragReorder(row, wrap, host, topList, topIdx, {
+          ignoreSelector: '.anot-mini',
+          onTap: function(){ node.colapsada = !node.colapsada; persist(); refresh(); },
+          onReorder: persist,
+          onSettle: refresh
+        });
+      } else {
+        row.addEventListener('click', function(){ node.colapsada = !node.colapsada; persist(); refresh(); });
+      }
       return wrap;
     }
     function refresh(){
       clearNode(host);
       var secs = container[field] || [];
       if (!secs.length) host.appendChild(h('div', {class:'empty-hint'}, opts.emptyText || 'Nada por aqui ainda.'));
-      secs.forEach(function(sec){ host.appendChild(buildNode(sec)); });
+      secs.forEach(function(sec, idx){ host.appendChild(buildNode(sec, secs, idx)); });
     }
     refresh();
     return {host: host, refresh: refresh, openWriteFor: openWriteFor};
@@ -1176,8 +1209,9 @@
       if (parentOverlay) root.removeChild(parentOverlay);
       function goBack(){ clearNode(root); if (parentOverlay) root.appendChild(parentOverlay); }
       var content = anotWritePopup(node, function(){ refresh(); }, goBack);
-      var overlay = h('div', {class:'modal-overlay', onclick:function(e){ if (e.target === overlay) goBack(); }});
-      overlay.appendChild(h('div', {class:'modal-box'}, content));
+      // clicar fora salva automaticamente (em vez de descartar) — evita perder o que foi digitado
+      var overlay = h('div', {class:'modal-overlay', onclick:function(e){ if (e.target === overlay){ content.save(); goBack(); } }});
+      overlay.appendChild(h('div', {class:'modal-box'}, content.el));
       root.appendChild(overlay);
     }
     function refresh(){
