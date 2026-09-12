@@ -156,10 +156,11 @@
      um "tamanho 1"; coluna 3 (largura 2) é Anotações, altura cheia.
      .cenario = telas de Cenário E de Aventura (mesmo conjunto de abas: Personagens/Itens/NPCs/Lugares/Anot):
        coluna 1: Personagens (tamanho 2) sobre Itens (tamanho 1); coluna 2: NPCs (2) sobre Lugares (1)
-     .campanha = só a campanha-raiz (tem Aventuras também):
-       coluna 1: Personagens/Itens/Aventuras (tamanho 1 cada); coluna 2: NPCs (2) sobre Lugares (1) */
+     .campanha = só a campanha-raiz (tem Aventuras também): 4 linhas (6fr/2fr/1fr/3fr) pra dar mais
+       espaço vertical a Personagens (50% da coluna) sem mexer na proporção 2:1 de NPCs:Lugares —
+       coluna 1: Personagens (50%) / Itens (25%) / Aventuras (25%); coluna 2: NPCs (66,7%) / Lugares (33,3%), igual antes */
   .screen-body.cenario{grid-template-columns:1fr 1fr 2fr; grid-template-rows:1fr 1fr 1fr; grid-template-areas:"personagens npcs anot" "personagens npcs anot" "itens lugares anot";}
-  .screen-body.campanha{grid-template-columns:1fr 1fr 2fr; grid-template-rows:1fr 1fr 1fr; grid-template-areas:"personagens npcs anot" "itens npcs anot" "aventuras lugares anot";}
+  .screen-body.campanha{grid-template-columns:1fr 1fr 2fr; grid-template-rows:6fr 2fr 1fr 3fr; grid-template-areas:"personagens npcs anot" "itens npcs anot" "itens lugares anot" "aventuras lugares anot";}
   @media (max-aspect-ratio: 9/10){
     .screen-body.cenario{grid-template-columns:1fr 1fr; grid-template-rows:1fr 0.85fr 1.5fr; grid-template-areas:"personagens npcs" "itens lugares" "anot anot";}
     .screen-body.campanha{grid-template-columns:1fr 1fr; grid-template-rows:0.85fr 0.85fr 1fr 1.5fr; grid-template-areas:"personagens lugares" "itens aventuras" "npcs npcs" "anot anot";}
